@@ -9,7 +9,7 @@ appears immediately in the running Logisim window as a normal, undoable action, 
 Blender MCP drives Blender. The agent understands the circuit through data that comes from
 Logisim itself (exact ports, the real netlist, simulated values), not through screenshots.
 
-[![CI](https://github.com/OWNER/logisim-live-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/logisim-live-mcp/actions/workflows/ci.yml)
+[![CI](https://github.com/anhduckkzz/logisim-live-mcp/actions/workflows/ci.yml/badge.svg)](https://github.com/anhduckkzz/logisim-live-mcp/actions/workflows/ci.yml)
 ![Python](https://img.shields.io/badge/python-3.11%2B-blue)
 ![Logisim Evolution](https://img.shields.io/badge/Logisim%20Evolution-5.0.0-orange)
 ![License](https://img.shields.io/badge/license-MIT%20%2B%20GPL--3.0%20plugin-green)

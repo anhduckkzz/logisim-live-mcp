@@ -56,10 +56,10 @@ dev = [
 logisim-mcp = "logisim_mcp.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/OWNER/logisim-live-mcp"
-Documentation = "https://github.com/OWNER/logisim-live-mcp#readme"
-Issues = "https://github.com/OWNER/logisim-live-mcp/issues"
-Changelog = "https://github.com/OWNER/logisim-live-mcp/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/anhduckkzz/logisim-live-mcp"
+Documentation = "https://github.com/anhduckkzz/logisim-live-mcp#readme"
+Issues = "https://github.com/anhduckkzz/logisim-live-mcp/issues"
+Changelog = "https://github.com/anhduckkzz/logisim-live-mcp/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 where = ["src"]
