@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  LOGISIM_URL: https://github.com/logisim-evolution/logisim-evolution/releases/download/v5.0.0/logisim-evolution-5.0.0-all.jar
+  LOGISIM_SHA256: 6b368e894742c04cc83aa9830f869bcab0190ede4df43ad6fecdb89b3a23a41c
+
+jobs:
+  unit:
+    name: Unit tests (Python ${{ matrix.python }}, ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ".[dev]"
+      - run: python -m pytest
+
+  logisim:
+    name: Live plugin against real Logisim GUI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - name: Download and verify Logisim Evolution 5.0.0
+        run: |
+          mkdir -p tools
+          curl -fsSL "$LOGISIM_URL" -o tools/logisim-evolution-5.0.0-all.jar
+          echo "$LOGISIM_SHA256  tools/logisim-evolution-5.0.0-all.jar" | sha256sum -c -
+      - name: Compile plugin against the official JAR
+        run: |
+          mkdir -p /tmp/plugin-classes
+          javac --release 21 -Werror -cp tools/logisim-evolution-5.0.0-all.jar \
+            -d /tmp/plugin-classes java-plugin/src/vn/logisimmcp/live/*.java
+      - run: sudo apt-get update && sudo apt-get install -y xvfb
+      - run: python -m pip install -e ".[dev]"
+      - name: GUI tests (committed plugin JAR)
+        env:
+          LOGISIM_EVOLUTION: ${{ github.workspace }}/tools/logisim-evolution-5.0.0-all.jar
+        run: xvfb-run -a python -m pytest -rs
+
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install build && python -m build
+      - name: Wheel must contain the live plugin
+        run: python -c "import zipfile,glob; n=zipfile.ZipFile(glob.glob('dist/*.whl')[0]).namelist(); assert any(x.endswith('logisim-mcp-live-plugin.jar') for x in n), n"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

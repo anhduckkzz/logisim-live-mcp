@@ -1,0 +1,14 @@
+name: Feature request
+description: Suggest a tool or an improvement
+labels: [enhancement]
+body:
+  - type: textarea
+    id: need
+    attributes:
+      label: What would you like an AI agent to be able to do in Logisim?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Proposed tool or behaviour

@@ -1,0 +1,4 @@
+Premain-Class: vn.logisimmcp.live.LiveAgent
+Agent-Class: vn.logisimmcp.live.LiveAgent
+Implementation-Title: logisim-mcp-live-plugin
+Implementation-Version: 2.1.0

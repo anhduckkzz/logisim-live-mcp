@@ -1,0 +1,28 @@
+name: Bug report
+description: Something did not work as expected
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: The tool call(s), what you expected, and what you got. Paste the tool result if possible.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: A small .circ file or the sequence of tool calls helps a lot.
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "get_bridge_status output: bridge_version, OS, Java version, MCP client (Claude/Codex/ChatGPT...)"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: MCP client logs, or output of `logisim-mcp --root <root> live-status`

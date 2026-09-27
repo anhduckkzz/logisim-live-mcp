@@ -1,0 +1,10 @@
+# Test vector format: pin names on the first data line, then expected rows.
+A B Cin Sum Cout
+0 0 0 0 0
+0 0 1 1 0
+0 1 0 1 0
+0 1 1 0 1
+1 0 0 1 0
+1 0 1 0 1
+1 1 0 0 1
+1 1 1 1 1

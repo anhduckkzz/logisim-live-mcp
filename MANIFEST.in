@@ -1,0 +1,7 @@
+include README.md CHANGELOG.md CONTRIBUTING.md SECURITY.md LICENSE .env.example
+recursive-include java-plugin *.java *.MF *.ps1 *.sh LICENSE
+recursive-include docs *.md
+recursive-include scripts *.ps1 *.sh *.py
+recursive-include examples *.txt *.circ *.md
+recursive-include tests *.py *.circ *.txt
+recursive-include src/logisim_mcp/plugin *.jar

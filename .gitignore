@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local setup output
+tools/
+generated-config/
+.env
+
+# Bridge runtime data inside project roots
+.logisim-mcp/
+
+# Java plugin build output (the released JAR lives in src/logisim_mcp/plugin/)
+java-plugin/build/
+
+# Logisim autosaves and editor noise
+*.circ.autosave
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
