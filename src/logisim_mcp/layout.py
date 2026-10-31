@@ -263,6 +263,41 @@ def _compress_path(path: list[tuple[int, int]]) -> list[tuple[int, int]]:
     return result
 
 
+def _straight_points(
+    origin: tuple[int, int],
+    target: tuple[int, int],
+    grid_step: int,
+    blocked: Any,
+    existing: list[Segment],
+) -> list[tuple[int, int]] | None:
+    """A single straight run from origin to target, or None when it is not legal.
+
+    Legal means: the two points share a row or column, no grid point strictly between them is
+    blocked, and the run never lies along an existing wire (crossings are allowed).
+    """
+    if origin[0] != target[0] and origin[1] != target[1]:
+        return None
+    dx = (target[0] > origin[0]) - (target[0] < origin[0])
+    dy = (target[1] > origin[1]) - (target[1] < origin[1])
+    current = (origin[0] + dx * grid_step, origin[1] + dy * grid_step)
+    while current != target:
+        if blocked(current):
+            return None
+        current = (current[0] + dx * grid_step, current[1] + dy * grid_step)
+    run = Segment(origin, target)
+    if any(_segment_interaction(run, segment)[0] > 0 for segment in existing):
+        return None
+    return [origin, target]
+
+
+def _crossing_total(points: list[tuple[int, int]], segments: list[Segment]) -> int:
+    total = 0
+    for a, b in zip(points, points[1:]):
+        run = Segment(a, b)
+        total += sum(_segment_interaction(run, segment)[1] for segment in segments)
+    return total
+
+
 def route_orthogonal(
     start: Point,
     end: Point,
@@ -467,6 +502,13 @@ def route_orthogonal(
         state = parent[state]
     path.reverse()
     points = _compress_path(path)
+    if len(points) > 2 and points[0] == origin and points[-1] == target:
+        # The port-row congestion cost can push a wire off the row it shares with its target
+        # (a jog down and back up between two aligned gates). A clean straight run is the most
+        # readable result, so prefer it whenever it is legal and crosses no more wires.
+        straight = _straight_points(origin, target, grid_step, blocked, existing)
+        if straight is not None and _crossing_total(straight, hostile) <= _crossing_total(points, hostile):
+            points = straight
     routed_segments = [Segment(a, b) for a, b in zip(points, points[1:])]
     overlap_length = crossings = 0
     for routed in routed_segments:

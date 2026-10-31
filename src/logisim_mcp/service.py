@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -33,6 +34,21 @@ class ProjectService:
         self.project: LogisimProject | None = None
         self._lock = threading.RLock()
         self.live = live
+
+    def _replaced_project_info(self) -> dict[str, Any] | None:
+        """What happens to the project that is about to be replaced by open/create."""
+        if self.project is None:
+            return None
+        info: dict[str, Any] = {
+            "path": self.policy.relative(self.project.path),
+            "had_unsaved_changes": bool(self.project.dirty),
+        }
+        if self.project.dirty:
+            info["warning"] = (
+                "The previously open project had edits that were never saved to disk and the "
+                "bridge no longer holds them; they may still exist in its Logisim window."
+            )
+        return info
 
     @property
     def runtime_dir(self) -> Path:
@@ -73,6 +89,7 @@ class ProjectService:
     ) -> dict[str, Any]:
         with self._lock:
             resolved = self.policy.resolve(path, suffixes=(".circ",))
+            previous = self._replaced_project_info()
             pulled = False
             live_info: dict[str, Any] | None = None
             if self.live is not None:
@@ -95,6 +112,8 @@ class ProjectService:
             result = self.project.summary()
             result["path"] = self.policy.relative(resolved)
             result["validation"] = issues
+            if previous is not None:
+                result["previous_project"] = previous
             if self.live is not None:
                 result["logisim_window"] = {
                     **(live_info or {"live_editing": False}),
@@ -227,6 +246,7 @@ class ProjectService:
                 raise FileNotFoundError(f"Parent directory does not exist: {resolved.parent}")
             if resolved.exists() and not overwrite:
                 raise FileExistsError(f"Project already exists: {self.policy.relative(resolved)}")
+            previous = self._replaced_project_info()
             if self.live is not None:
                 self.live.unbind()
             self.project = LogisimProject.create(resolved, main_circuit)
@@ -241,6 +261,8 @@ class ProjectService:
                     "save": saved,
                 }
             )
+            if previous is not None:
+                result["previous_project"] = previous
             return result
 
     def require_project(self) -> LogisimProject:
@@ -275,12 +297,33 @@ class ProjectService:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
         return target_dir / f"{stamp}-{uuid.uuid4().hex[:8]}.circ"
 
-    def _create_backup(self, source: Path, *, reason: str) -> dict[str, Any] | None:
+    @staticmethod
+    def _backup_keep() -> int:
+        """How many automatic backups to retain per project (0 keeps everything)."""
+        raw = os.environ.get("LOGISIM_MCP_BACKUP_KEEP", "20").strip()
+        try:
+            return max(0, int(raw))
+        except ValueError:
+            return 20
+
+    def _create_backup(
+        self, source: Path, *, reason: str, dedupe: bool = False
+    ) -> dict[str, Any] | None:
+        """Copy ``source`` into the backup folder.
+
+        Automatic backups (``dedupe=True``) are skipped when the newest backup already holds
+        identical bytes, and the oldest automatic ones are pruned beyond the retention limit.
+        Backups the person asked for explicitly are always created and never pruned.
+        """
         if not source.exists():
             return None
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        if dedupe:
+            newest = self._newest_backup(source)
+            if newest is not None and newest.get("sha256") == digest:
+                return {**newest, "reused": True}
         destination = self._backup_path_for(source)
         shutil.copy2(source, destination)
-        digest = __import__("hashlib").sha256(destination.read_bytes()).hexdigest()
         metadata = {
             "backup": self.policy.relative(destination),
             "source": self.policy.relative(source),
@@ -291,7 +334,49 @@ class ProjectService:
         destination.with_suffix(".json").write_text(
             json.dumps(metadata, indent=2), encoding="utf-8"
         )
+        if dedupe:
+            self._prune_backups(source)
         return metadata
+
+    def _newest_backup(self, source: Path) -> dict[str, Any] | None:
+        directory = self._backup_dir_for(source)
+        if not directory.exists():
+            return None
+        files = sorted(directory.glob("*.circ"))
+        if not files:
+            return None
+        newest = files[-1]
+        meta_path = newest.with_suffix(".json")
+        try:
+            metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(metadata, dict) and metadata.get("sha256"):
+                return metadata
+        except (OSError, json.JSONDecodeError):
+            pass
+        return {
+            "backup": self.policy.relative(newest),
+            "sha256": hashlib.sha256(newest.read_bytes()).hexdigest(),
+        }
+
+    def _prune_backups(self, source: Path) -> None:
+        keep = self._backup_keep()
+        if keep <= 0:
+            return
+        directory = self._backup_dir_for(source)
+        automatic: list[Path] = []
+        for path in sorted(directory.glob("*.circ")):
+            try:
+                reason = str(json.loads(path.with_suffix(".json").read_text(encoding="utf-8")).get("reason", ""))
+            except (OSError, json.JSONDecodeError, AttributeError):
+                continue  # unknown provenance: never delete
+            if reason.startswith("pre-"):
+                automatic.append(path)
+        for path in automatic[: max(0, len(automatic) - keep)]:
+            for victim in (path, path.with_suffix(".json")):
+                try:
+                    victim.unlink()
+                except OSError:
+                    pass
 
     @staticmethod
     def _atomic_write(path: Path, data: bytes) -> None:
@@ -317,7 +402,7 @@ class ProjectService:
                 pulled = True
             project.assert_valid()
             data = project.serialize()
-            backup = self._create_backup(project.path, reason="pre-save")
+            backup = self._create_backup(project.path, reason="pre-save", dedupe=True)
             self._atomic_write(project.path, data)
             project.original_bytes = data
             project.dirty = False
@@ -330,6 +415,49 @@ class ProjectService:
             if self.live is not None:
                 result["logisim_window"] = self._sync_window_after_write(project.path, pulled)
             return result
+
+    def save_project_as(self, path: str | Path, *, overwrite: bool = False) -> dict[str, Any]:
+        """Write the open project to a new .circ file and continue working on that file.
+
+        The original file is left exactly as it is on disk, so this is the way to fork a
+        variant without disturbing the source project.
+        """
+        with self._lock:
+            project = self.require_project()
+            live = self._live_bound()
+            if live is not None and live.has_external_changes() is not None:
+                self.project = project = live.pull(self.runtime_dir, project.path)
+            resolved = self.policy.resolve(path, must_exist=False, suffixes=(".circ",))
+            if not resolved.parent.is_dir():
+                raise FileNotFoundError(f"Parent directory does not exist: {resolved.parent}")
+            if resolved == project.path:
+                raise ValueError("The target is the open project; use save_project instead")
+            if resolved.exists() and not overwrite:
+                raise FileExistsError(
+                    f"Project already exists: {self.policy.relative(resolved)}; pass overwrite=true"
+                )
+            project.assert_valid()
+            data = project.serialize()
+            backup = self._create_backup(resolved, reason="pre-save-as", dedupe=True)
+            self._atomic_write(resolved, data)
+            previous = project.path
+            project.path = resolved
+            project.original_bytes = data
+            project.dirty = False
+            if self.live is not None:
+                self.live.unbind()
+            return {
+                "saved": True,
+                "path": self.policy.relative(resolved),
+                "previous_path": self.policy.relative(previous),
+                "original_file_unchanged": True,
+                "bytes": len(data),
+                "backup": backup,
+                "logisim_window": {
+                    "live_editing": False,
+                    "hint": "Call save_and_open_in_logisim to view the new file in Logisim",
+                },
+            }
 
     def _sync_window_after_write(self, path: Path, pulled: bool) -> dict[str, Any]:
         """Make the Logisim window agree with the file that was just written."""
@@ -410,7 +538,7 @@ class ProjectService:
                 ) from None
             candidate = LogisimProject.load(backup)
             candidate.assert_valid()
-            safety_backup = self._create_backup(project.path, reason="pre-rollback")
+            safety_backup = self._create_backup(project.path, reason="pre-rollback", dedupe=True)
             self._atomic_write(project.path, backup.read_bytes())
             self.project = LogisimProject.load(project.path)
             window: dict[str, Any] | None = None

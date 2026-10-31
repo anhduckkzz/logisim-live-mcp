@@ -372,7 +372,14 @@ class LogisimProject:
         component = etree.Element(
             "comp", lib=str(library), loc=loc, name=str(component_name)
         )
-        for key, value in (properties or {}).items():
+        props = dict(properties or {})
+        if self._is_wiring_library(library) and component_name == "Pin":
+            # Logisim omits `facing` for east, but its own toolbar places output pins facing
+            # west (the wire attaches on the west side). Omitting it makes a freshly added
+            # output pin attach on the wrong side, so default to what the GUI would do.
+            if str(props.get("type", "")).lower() == "output" and "facing" not in props:
+                props["facing"] = "west"
+        for key, value in props.items():
             etree.SubElement(component, "a", name=str(key), val=str(value))
         insert_at = len(circuit)
         for idx, child in enumerate(circuit):
@@ -382,6 +389,12 @@ class LogisimProject:
         circuit.insert(insert_at, component)
         self.dirty = True
         return self._component_data(circuit_name, component)
+
+    def _is_wiring_library(self, library: str | int) -> bool:
+        for lib in self.list_libraries():
+            if str(lib["library"]) == str(library):
+                return str(lib.get("description") or "").lstrip("#") == "Wiring"
+        return False
 
     def update_component(
         self,
@@ -555,6 +568,83 @@ class LogisimProject:
         if removed:
             self.dirty = True
         return {"from": a, "to": b, "removed": removed}
+
+    def disconnect_route(
+        self,
+        circuit_name: str,
+        points: list[str | list[int] | tuple[int, int] | Point],
+    ) -> dict[str, Any]:
+        """Remove a polyline of wire segments, e.g. the ``points`` a smart route returned.
+
+        Each consecutive pair of points is removed as an exact wire. When no exact wire exists
+        but a longer collinear wire covers the pair, that wire is split and only the covered part
+        is removed, so a net can be taken apart without deleting neighbouring runs.
+        """
+        if len(points) < 2:
+            raise ValueError("disconnect_route needs at least two points")
+        circuit = self.get_circuit(circuit_name)
+        parsed = [Point.parse(point) for point in points]
+        removed = 0
+        split = 0
+        not_found: list[dict[str, str]] = []
+        for first, second in zip(parsed, parsed[1:]):
+            a, b = str(first), str(second)
+            if a == b:
+                continue
+            exact = [
+                wire
+                for wire in _element_children(circuit, "wire")
+                if {wire.get("from"), wire.get("to")} == {a, b}
+            ]
+            if exact:
+                for wire in exact:
+                    circuit.remove(wire)
+                    removed += 1
+                continue
+            if self._split_covering_wire(circuit, first, second):
+                removed += 1
+                split += 1
+            else:
+                not_found.append({"from": a, "to": b})
+        if removed:
+            self.dirty = True
+        return {"circuit": circuit_name, "removed": removed, "split": split, "not_found": not_found}
+
+    @staticmethod
+    def _split_covering_wire(circuit: Any, first: Point, second: Point) -> bool:
+        horizontal = first.y == second.y
+        vertical = first.x == second.x
+        if not (horizontal or vertical):
+            return False
+        for wire in list(_element_children(circuit, "wire")):
+            try:
+                p, q = Point.parse(wire.get("from")), Point.parse(wire.get("to"))
+            except (TypeError, ValueError):
+                continue
+            if horizontal and p.y == q.y == first.y:
+                axis = lambda point: point.x  # noqa: E731
+            elif vertical and p.x == q.x == first.x:
+                axis = lambda point: point.y  # noqa: E731
+            else:
+                continue
+            w_lo, w_hi = sorted((axis(p), axis(q)))
+            c_lo, c_hi = sorted((axis(first), axis(second)))
+            if not (w_lo <= c_lo and c_hi <= w_hi) or (w_lo, w_hi) == (c_lo, c_hi):
+                continue
+            keep: list[tuple[Point, Point]] = []
+            for a_val, b_val in ((w_lo, c_lo), (c_hi, w_hi)):
+                if a_val == b_val:
+                    continue
+                if horizontal:
+                    keep.append((Point(a_val, first.y), Point(b_val, first.y)))
+                else:
+                    keep.append((Point(first.x, a_val), Point(first.x, b_val)))
+            index = list(circuit).index(wire)
+            circuit.remove(wire)
+            for offset, (a_pt, b_pt) in enumerate(keep):
+                circuit.insert(index + offset, etree.Element("wire", **{"from": str(a_pt), "to": str(b_pt)}))
+            return True
+        return False
 
     def validate(self) -> list[ValidationIssue]:
         issues: list[ValidationIssue] = []

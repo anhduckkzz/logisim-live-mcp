@@ -96,8 +96,10 @@ Backups remain inside the allowlisted root:
   20260926T123456.000000Z-ab12cd34.json
 ```
 
-The sidecar records source, reason, timestamp, and SHA-256. Backups are intentionally
-not auto-pruned; retention should be handled explicitly by the project owner.
+The sidecar records source, reason, timestamp, and SHA-256. An automatic backup (reason
+starting with `pre-`) is skipped when the newest backup already holds identical bytes, and only
+the newest 20 automatic backups per project are kept; set `LOGISIM_MCP_BACKUP_KEEP` to another
+number, or to `0` to keep everything. Backups created with `create_backup` are never pruned.
 
 ## Scope and limitations
 
@@ -109,6 +111,8 @@ not auto-pruned; retention should be handled explicitly by the project owner.
 - Logisim windows started by hand (without the plugin) cannot be edited live; close them
   once and let the bridge relaunch Logisim. Edits made while the window is closed are
   saved normally and shown the next time the project is opened.
+- Release 2.2.0 adds `disconnect_route`, `save_project_as`, `export_image` and the changes listed
+  in the changelog. Its Python side is unit-tested; the Java plugin is unchanged from 2.1.0.
 - Release 2.1.0 adds the understanding tools above, tested the same way.
 - Release 2.0.0 is tested end to end against a real Logisim 5.0.0 GUI (live drawing,
   rejected edits, a user's Ctrl+Z pulled back, save verification, test vectors, circuit

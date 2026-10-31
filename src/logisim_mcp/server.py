@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Any, Callable
 
@@ -8,11 +9,11 @@ from mcp.types import ToolAnnotations
 
 from . import __version__
 from .live import LiveAppUnavailable
-from .live_sync import LiveNotOpen, LiveSession
+from .live_sync import LiveNotOpen, LiveRejected, LiveSession
 from .project import LogisimProject
 from .runner import LogisimRunner
 from .service import ProjectService
-from .views import ascii_view, netlist_text, problems_text, truth_table_text
+from .views import ascii_view, netlist_text, problems_text, svg_to_png, svg_view, truth_table_text
 
 READ_ONLY = ToolAnnotations(readOnlyHint=True, destructiveHint=False, openWorldHint=False)
 WRITE = ToolAnnotations(readOnlyHint=False, destructiveHint=False, openWorldHint=False)
@@ -27,7 +28,40 @@ BATCH_ACTIONS = (
     "connect_wire",
     "connect_wire_smart",
     "disconnect_wire",
+    "disconnect_route",
 )
+
+_UNKNOWN_PIN = re.compile(r"\bNo (?:input )?pin labelled\b", re.IGNORECASE)
+
+
+def _pin_labels(data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    inputs: list[str] = []
+    outputs: list[str] = []
+    for comp in data.get("components", []):
+        if comp.get("name") != "Pin" or not comp.get("label"):
+            continue
+        (outputs if comp.get("pin_type") == "output" else inputs).append(str(comp["label"]))
+    return sorted(inputs), sorted(outputs)
+
+
+def _with_pin_hint(live: LiveSession, circuit_name: str, call: Callable[[], Any]) -> Any:
+    """Run a simulate/drive call; when Logisim rejects a pin label, say which labels exist."""
+    try:
+        return call()
+    except LiveRejected as exc:
+        if not _UNKNOWN_PIN.search(str(exc)):
+            raise
+        try:
+            inputs, outputs = _pin_labels(live.inspect(circuit_name, values=False))
+        except Exception:  # the hint is best effort; keep the original error
+            raise exc from None
+        hint = (
+            f"Labelled input pins in {circuit_name}: {', '.join(inputs) or 'none'}; "
+            f"output pins: {', '.join(outputs) or 'none'}. Only Pin components with a label can "
+            "be driven or read (Clock and LED components are not pins; add a labelled output "
+            "Pin next to them)."
+        )
+        raise LiveRejected(f"{exc}. {hint}") from None
 
 
 def _route_components(service: ProjectService, project: LogisimProject, circuit_name: str):
@@ -123,6 +157,8 @@ def _run_batch_step(
         )
     if action == "disconnect_wire":
         return project.disconnect(circuit_name, args["start"], args["end"])
+    if action == "disconnect_route":
+        return project.disconnect_route(circuit_name, args["points"])
     raise ValueError(f"Unknown batch action {action!r}; expected one of {', '.join(BATCH_ACTIONS)}")
 
 
@@ -155,8 +191,8 @@ def create_server(
             "Lay components out in clear left-to-right logic stages with generous spacing. Prefer "
             "connect_wire_smart over raw segments: minimize overlapping wires, device crossings, "
             "I/O-axis congestion, total crossings, and unnecessary bends. Run analyze_layout before "
-            "the final save and improve avoidable warnings. Every save creates a backup and marks "
-            "the window as saved. Finish with save_and_open_in_logisim. "
+            "the final save and improve avoidable warnings. Saves keep a backup of the previous file "
+            "(identical ones are not duplicated) and mark the window as saved. Finish with save_and_open_in_logisim. "
             "Never claim a circuit passed simulation unless run_test_vector reports passed=true."
         ),
         host=host,
@@ -482,6 +518,23 @@ def create_server(
         )
 
     @mcp.tool(
+        title="Disconnect route",
+        description=(
+            "Remove a whole routed wire given its points, e.g. the 'points' returned by "
+            "connect_wire_smart or connect_ports. Every consecutive pair is removed as one wire "
+            "segment; a longer collinear wire that only partly covers a pair is split so its other "
+            "parts stay. Reports removed segments and any pair that was not found."
+        ),
+        annotations=DELETE,
+    )
+    def disconnect_route(circuit_name: str, points: list[list[int]]) -> dict[str, Any]:
+        return edit(
+            "MCP: remove route",
+            lambda p: p.disconnect_route(circuit_name, points),
+            scope=[circuit_name],
+        )
+
+    @mcp.tool(
         title="Apply several edits",
         description=(
             "Apply an ordered list of edits to one circuit as a single step: it appears in the "
@@ -639,6 +692,48 @@ def create_server(
         return ascii_view(live.inspect(circuit_name, values=False), region=region, scale=scale)
 
     @mcp.tool(
+        title="Export circuit image",
+        description=(
+            "Draw a circuit as an image file for reports: format='svg' (always available, "
+            "vector, wires coloured by simulated value) or 'png' (needs the optional cairosvg "
+            "package). The file is written beneath the project root; scale is pixels per Logisim "
+            "unit. Refuses to replace an existing file unless overwrite=true. This is the bridge's "
+            "own schematic drawing, not a screenshot of the Logisim window."
+        ),
+        annotations=WRITE,
+    )
+    def export_image(
+        circuit_name: str,
+        path: str,
+        format: str = "svg",
+        scale: float = 1.0,
+        include_values: bool = True,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        kind = format.lower().lstrip(".")
+        if kind not in ("svg", "png"):
+            raise ValueError("format must be 'svg' or 'png'")
+        live = service.live_session()
+        target = service.policy.resolve(path, must_exist=False, suffixes=(f".{kind}",))
+        if not target.parent.is_dir():
+            raise FileNotFoundError(f"Parent directory does not exist: {target.parent}")
+        if target.exists() and not overwrite:
+            raise FileExistsError(
+                f"File already exists: {service.policy.relative(target)}; pass overwrite=true"
+            )
+        data = live.inspect(circuit_name, values=include_values)
+        svg = svg_view(data, scale=scale, show_values=include_values)
+        payload = svg.encode("utf-8") if kind == "svg" else svg_to_png(svg, scale=1.0)
+        service._atomic_write(target, payload)
+        return {
+            "exported": True,
+            "circuit": circuit_name,
+            "path": service.policy.relative(target),
+            "format": kind,
+            "bytes": len(payload),
+        }
+
+    @mcp.tool(
         title="Diagnose circuits",
         description=(
             "List electrical and layout problems of one circuit, or of every circuit in the "
@@ -697,7 +792,7 @@ def create_server(
                     f"{point['component']}.{point['port']}" if point.get("component") else f"{point['x']},{point['y']}"
                 )
                 spec["watch"].append({"name": name, "at": [point["x"], point["y"]]})
-        result = live.simulate(circuit_name, spec)
+        result = _with_pin_hint(live, circuit_name, lambda: live.simulate(circuit_name, spec))
         result["sequential"] = sequential
         return result if format == "json" else truth_table_text(result)
 
@@ -711,7 +806,7 @@ def create_server(
     )
     def set_inputs_in_window(circuit_name: str, values: dict[str, Any]) -> dict[str, Any]:
         live = service.live_session()
-        return live.drive(circuit_name, values)
+        return _with_pin_hint(live, circuit_name, lambda: live.drive(circuit_name, values))
 
     @mcp.tool(
         title="Connect ports",
@@ -782,6 +877,20 @@ def create_server(
     )
     def save_project() -> dict[str, Any]:
         return service.save()
+
+    @mcp.tool(
+        title="Save project as",
+        description=(
+            "Write the open project to a new .circ file beneath the project root and keep working "
+            "on that copy. The original file is not modified, so this forks a variant safely. "
+            "Refuses to replace an existing file unless overwrite=true (the replaced file is "
+            "backed up first). The Logisim window keeps showing the original; call "
+            "save_and_open_in_logisim to view the new file."
+        ),
+        annotations=WRITE,
+    )
+    def save_project_as(path: str, overwrite: bool = False) -> dict[str, Any]:
+        return service.save_project_as(path, overwrite=overwrite)
 
     @mcp.tool(
         title="Save and open in Logisim",

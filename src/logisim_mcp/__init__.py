@@ -4,4 +4,4 @@ from .project import LogisimProject
 from .service import ProjectService
 
 __all__ = ["LogisimProject", "ProjectService"]
-__version__ = "2.1.0"
+__version__ = "2.2.0"

@@ -26,6 +26,23 @@ def test_smart_route_prefers_detour_over_existing_wire_overlap() -> None:
     assert result["points"][1][1] != 0
 
 
+def test_smart_route_stays_straight_when_aligned_ports_sit_on_the_row() -> None:
+    # A gate beyond the target has its input on the same row; the congestion cost used to push
+    # the wire onto a pointless jog even though the straight run is free.
+    components = [{"location": "(240,0)", "library": "1", "name": "NOT Gate", "properties": {}}]
+    result = route_orthogonal(Point(0, 0), Point(200, 0), components, [])
+    assert result["points"] == [[0, 0], [200, 0]]
+    assert result["turn_count"] == 0
+
+
+def test_smart_route_straight_run_still_avoids_existing_wire_overlap() -> None:
+    wires = [{"from": "(50,0)", "to": "(150,0)"}]
+    components = [{"location": "(240,0)", "library": "1", "name": "NOT Gate", "properties": {}}]
+    result = route_orthogonal(Point(0, 0), Point(200, 0), components, wires)
+    assert result["overlap_length"] == 0
+    assert result["points"] != [[0, 0], [200, 0]]
+
+
 def test_layout_analysis_reports_overlap_crossing_and_device_intersection() -> None:
     components = [
         {

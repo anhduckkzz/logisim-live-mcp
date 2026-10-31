@@ -46,6 +46,12 @@ Validate, create a timestamped backup, and atomically save the open project. The
 
 Parameters: none
 
+### `save_project_as` (W)
+
+Write the open project to a new .circ file beneath the project root and keep working on that copy. The original file is not modified, so this forks a variant safely. Refuses to replace an existing file unless overwrite=true (the replaced file is backed up first). The Logisim window keeps showing the original; call save_and_open_in_logisim to view the new file.
+
+Parameters: `path`, `overwrite`?
+
 ### `save_and_open_in_logisim` (W)
 
 Final step: save pending edits, verify the file with Logisim's own loader, and show the project in the Logisim window with no dialogs. A live window is simply brought to the front; otherwise the project is opened in the running Logisim, or Logisim is launched with it. Set force_reload=true only when the user agreed to discard unsaved hand edits in a window that is not live-bound.
@@ -95,6 +101,12 @@ Parameters: `circuit_name`, `format`?, `include_properties`?, `include_values`?
 Draw the circuit as characters on the Logisim grid (1 char = scale units, default 10) with coordinate rulers: device boxes with names, wire shapes, connected junctions vs crossings that do NOT connect, and port markers (upper case = connected, lower case = unconnected). Use region=[x1,y1,x2,y2] to zoom into part of a large circuit.
 
 Parameters: `circuit_name`, `region`?, `scale`?
+
+### `export_image` (W)
+
+Draw a circuit as an image file for reports: format='svg' (always available, vector, wires coloured by simulated value) or 'png' (needs the optional cairosvg package). The file is written beneath the project root; scale is pixels per Logisim unit. Refuses to replace an existing file unless overwrite=true. This is the bridge's own schematic drawing, not a screenshot of the Logisim window.
+
+Parameters: `circuit_name`, `path`, `format`?, `scale`?, `include_values`?, `overwrite`?
 
 ### `diagnose_circuit` (R)
 
@@ -200,9 +212,15 @@ Remove the exact wire segment between two Logisim grid points.
 
 Parameters: `circuit_name`, `start`, `end`
 
+### `disconnect_route` (D)
+
+Remove a whole routed wire given its points, e.g. the 'points' returned by connect_wire_smart or connect_ports. Every consecutive pair is removed as one wire segment; a longer collinear wire that only partly covers a pair is split so its other parts stay. Reports removed segments and any pair that was not found.
+
+Parameters: `circuit_name`, `points`
+
 ### `apply_edits` (W)
 
-Apply an ordered list of edits to one circuit as a single step: it appears in the Logisim window at once and is one Ctrl+Z. connect_ports items take 'source' and 'target' port references, e.g. {'action':'connect_ports','source':'A','target':'G1.in1'}. Each item has an 'action' (add_component, connect_ports, update_component, move_component, delete_component, connect_wire, connect_wire_smart, disconnect_wire) plus that tool's arguments except circuit_name, e.g. {'action':'add_component','component_name':'AND Gate','library':'1','location':[300,200]} or {'action':'connect_wire_smart','start':[200,200],'end':[260,190]}. If any item fails, nothing is changed.
+Apply an ordered list of edits to one circuit as a single step: it appears in the Logisim window at once and is one Ctrl+Z. connect_ports items take 'source' and 'target' port references, e.g. {'action':'connect_ports','source':'A','target':'G1.in1'}. Each item has an 'action' (add_component, connect_ports, update_component, move_component, delete_component, connect_wire, connect_wire_smart, disconnect_wire, disconnect_route) plus that tool's arguments except circuit_name, e.g. {'action':'add_component','component_name':'AND Gate','library':'1','location':[300,200]} or {'action':'connect_wire_smart','start':[200,200],'end':[260,190]}. If any item fails, nothing is changed.
 
 Parameters: `circuit_name`, `operations`, `label`?
 

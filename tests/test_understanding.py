@@ -111,3 +111,38 @@ def test_router_can_tap_an_existing_wire_of_its_own_net() -> None:
     # Starting from the nearest point of the same net is shorter than starting at (0,0).
     assert route["points"][0] != [0, 0]
     assert route["overlap_length"] == 0
+
+
+def test_svg_view_draws_boxes_ports_wires_and_values() -> None:
+    from logisim_mcp.views import svg_view
+
+    svg = svg_view(INSPECT)
+    assert svg.startswith("<svg") and svg.rstrip().endswith("</svg>")
+    assert svg.count("<rect") == 3  # background + two devices
+    assert svg.count("<line") == 4  # one per wire segment
+    assert "#1a8f3c" in svg  # net n1 carries 1
+    assert "#c62828" in svg  # unconnected port is flagged
+    assert "AND G1" in svg
+    import xml.dom.minidom
+
+    xml.dom.minidom.parseString(svg)  # well-formed
+
+
+def test_svg_view_escapes_text_and_rejects_empty_circuits() -> None:
+    import pytest
+
+    from logisim_mcp.views import svg_view
+
+    tricky = {
+        **INSPECT,
+        "components": [
+            {**INSPECT["components"][0], "label": "A<&>\""},
+            INSPECT["components"][1],
+        ],
+    }
+    svg = svg_view(tricky, show_values=False)
+    assert "A&lt;&amp;&gt;" in svg
+    with pytest.raises(ValueError):
+        svg_view({"circuit": "empty", "components": [], "wires": [], "nets": []})
+    with pytest.raises(ValueError):
+        svg_view(INSPECT, scale=0)

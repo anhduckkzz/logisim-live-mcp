@@ -8,14 +8,15 @@ from logisim_mcp.server import create_server
 
 GROUPS = [
     ("Project", ["get_bridge_status", "create_project", "open_project", "close_project",
-                 "list_circuits", "list_libraries", "save_project", "save_and_open_in_logisim",
+                 "list_circuits", "list_libraries", "save_project", "save_project_as",
+                 "save_and_open_in_logisim",
                  "create_backup", "list_backups", "rollback_project"]),
     ("Understanding", ["list_component_types", "describe_component", "inspect_circuit",
-                       "view_circuit", "diagnose_circuit", "read_circuit", "analyze_layout",
+                       "view_circuit", "export_image", "diagnose_circuit", "read_circuit", "analyze_layout",
                        "validate_project", "validate_with_logisim"]),
     ("Editing (live)", ["add_circuit", "rename_circuit", "delete_circuit", "set_main_circuit",
                         "add_component", "update_component", "move_component", "delete_component",
-                        "connect_ports", "connect_wire_smart", "connect_wire", "disconnect_wire",
+                        "connect_ports", "connect_wire_smart", "connect_wire", "disconnect_wire", "disconnect_route",
                         "apply_edits"]),
     ("Simulation", ["simulate_circuit", "set_inputs_in_window", "run_test_vector"]),
     ("Window", ["show_in_logisim", "sync_from_logisim"]),

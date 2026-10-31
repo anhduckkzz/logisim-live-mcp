@@ -118,13 +118,13 @@ Details: [docs/clients.md](docs/clients.md) and [docs/install-windows.md](docs/i
 
 ## Tools
 
-38 tools in five groups (full reference: [docs/tools.md](docs/tools.md)):
+41 tools in five groups (full reference: [docs/tools.md](docs/tools.md)):
 
 | Group | Tools |
 |---|---|
-| Project | `create_project`, `open_project`, `save_project`, `save_and_open_in_logisim`, backups and rollback, status |
-| Understanding | `list_component_types`, `describe_component`, `inspect_circuit`, `view_circuit`, `diagnose_circuit`, `read_circuit`, `analyze_layout`, validation |
-| Editing (live) | `add_component`, `update_component`, `move_component`, `delete_component`, `connect_ports`, `connect_wire_smart`, `connect_wire`, `disconnect_wire`, `apply_edits` (batch, one undo step), circuit add/rename/delete/main |
+| Project | `create_project`, `open_project`, `save_project`, `save_project_as`, `save_and_open_in_logisim`, backups and rollback, status |
+| Understanding | `list_component_types`, `describe_component`, `inspect_circuit`, `view_circuit`, `export_image` (SVG/PNG), `diagnose_circuit`, `read_circuit`, `analyze_layout`, validation |
+| Editing (live) | `add_component`, `update_component`, `move_component`, `delete_component`, `connect_ports`, `connect_wire_smart`, `connect_wire`, `disconnect_wire`, `disconnect_route`, `apply_edits` (batch, one undo step), circuit add/rename/delete/main |
 | Simulation | `simulate_circuit`, `set_inputs_in_window`, `run_test_vector` |
 | Window | `show_in_logisim`, `sync_from_logisim` |
 

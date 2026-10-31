@@ -102,3 +102,37 @@ def test_create_v5_project_and_manage_circuits(tmp_path: Path) -> None:
     deleted = created.delete_circuit("logic", delete_references=True)
     assert deleted["deleted_subcircuit_references"] == 1
     assert created.circuit_names() == ["main"]
+
+
+def test_output_pin_defaults_to_west_facing_like_the_gui(project: LogisimProject) -> None:
+    out = project.add_component("main", "Pin", "0", [300, 300], {"type": "output", "label": "Y"})
+    assert out["properties"]["facing"] == "west"
+    explicit = project.add_component(
+        "main", "Pin", "0", [300, 320], {"type": "output", "facing": "east"}
+    )
+    assert explicit["properties"]["facing"] == "east"
+    inp = project.add_component("main", "Pin", "0", [300, 340], {"label": "A"})
+    assert "facing" not in inp["properties"]
+    gate_named_pin = project.add_component("main", "Pin", "1", [300, 360], {"type": "output"})
+    assert "facing" not in gate_named_pin["properties"]
+
+
+def test_disconnect_route_removes_exact_and_split_segments(project: LogisimProject) -> None:
+    project.connect("main", [0, 0], [100, 0])
+    project.connect("main", [100, 0], [100, 50])
+    project.connect("main", [0, 100], [200, 100])
+    result = project.disconnect_route("main", [[0, 0], [100, 0], [100, 50]])
+    assert result["removed"] == 2
+    assert result["not_found"] == []
+    # Taking the middle run out of a longer collinear wire keeps the two outer parts.
+    result = project.disconnect_route("main", [[50, 100], [150, 100]])
+    assert result["removed"] == 1 and result["split"] == 1
+    wires = {frozenset((w["from"], w["to"])) for w in project.read_circuit("main")["wires"]}
+    assert frozenset(("(0,100)", "(50,100)")) in wires
+    assert frozenset(("(150,100)", "(200,100)")) in wires
+    assert frozenset(("(0,100)", "(200,100)")) not in wires
+    missing = project.disconnect_route("main", [[500, 500], [600, 500]])
+    assert missing["removed"] == 0
+    assert missing["not_found"] == [{"from": "(500,500)", "to": "(600,500)"}]
+    with pytest.raises(ValueError):
+        project.disconnect_route("main", [[0, 0]])
