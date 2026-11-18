@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-11-18
+
+### Added
+- `record_timing_diagram`: records Logisim's own Timing diagram window (Simulate > Timing
+  diagram) while it plays steps on the window's simulation (drive inputs, press buttons, tick
+  the clock), then saves the picture that window's File > Export Image writes (png, gif, jpg,
+  svg). Signals are shown in the order asked; the sampled values after each step are returned.
+- `export_image` draws circuits with Logisim itself by default (`renderer="logisim"`), exactly
+  like File > Export Image: png, gif, jpg or svg, any zoom, `printer_view` for the print look.
+  No extra Python package is needed. The bridge's own drawing stays available as
+  `renderer="bridge"`.
+- Push Buttons can be driven by label in `simulate_circuit` and `set_inputs_in_window`
+  (1 = pressed, 0 = released, whatever the button's logic level), so reset buttons and other
+  push-button inputs are testable without a stand-in Pin.
+
+### Changed
+- `create_project`, `save_project_as`, `export_image` and `record_timing_diagram` create missing
+  folders under the project root instead of failing, and report them in `created_directories`.
+- `update_component` (and its `apply_edits` action) also accepts `properties`, like
+  `add_component`.
+- A Pin added with `output: true` (or `input: true`) gets the matching `type` property instead of
+  an ignored unknown attribute.
+- Live protocol 3: a Logisim window started by an older bridge is reported with a clear "close
+  Logisim once" message instead of failing on the new commands.
+
 ## [2.2.0] - 2026-10-31
 
 ### Added

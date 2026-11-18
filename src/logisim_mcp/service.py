@@ -242,10 +242,9 @@ class ProjectService:
         """Create and atomically persist a native v5.0.0 project under the allowlist."""
         with self._lock:
             resolved = self.policy.resolve(path, must_exist=False, suffixes=(".circ",))
-            if not resolved.parent.is_dir():
-                raise FileNotFoundError(f"Parent directory does not exist: {resolved.parent}")
             if resolved.exists() and not overwrite:
                 raise FileExistsError(f"Project already exists: {self.policy.relative(resolved)}")
+            created_dirs = self.policy.ensure_parent(resolved)
             previous = self._replaced_project_info()
             if self.live is not None:
                 self.live.unbind()
@@ -263,6 +262,8 @@ class ProjectService:
             )
             if previous is not None:
                 result["previous_project"] = previous
+            if created_dirs:
+                result["created_directories"] = created_dirs
             return result
 
     def require_project(self) -> LogisimProject:
@@ -428,8 +429,6 @@ class ProjectService:
             if live is not None and live.has_external_changes() is not None:
                 self.project = project = live.pull(self.runtime_dir, project.path)
             resolved = self.policy.resolve(path, must_exist=False, suffixes=(".circ",))
-            if not resolved.parent.is_dir():
-                raise FileNotFoundError(f"Parent directory does not exist: {resolved.parent}")
             if resolved == project.path:
                 raise ValueError("The target is the open project; use save_project instead")
             if resolved.exists() and not overwrite:
@@ -438,6 +437,7 @@ class ProjectService:
                 )
             project.assert_valid()
             data = project.serialize()
+            created_dirs = self.policy.ensure_parent(resolved)
             backup = self._create_backup(resolved, reason="pre-save-as", dedupe=True)
             self._atomic_write(resolved, data)
             previous = project.path
@@ -446,7 +446,7 @@ class ProjectService:
             project.dirty = False
             if self.live is not None:
                 self.live.unbind()
-            return {
+            result = {
                 "saved": True,
                 "path": self.policy.relative(resolved),
                 "previous_path": self.policy.relative(previous),
@@ -458,6 +458,9 @@ class ProjectService:
                     "hint": "Call save_and_open_in_logisim to view the new file in Logisim",
                 },
             }
+            if created_dirs:
+                result["created_directories"] = created_dirs
+            return result
 
     def _sync_window_after_write(self, path: Path, pulled: bool) -> dict[str, Any]:
         """Make the Logisim window agree with the file that was just written."""

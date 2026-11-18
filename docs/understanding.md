@@ -34,7 +34,14 @@ same net are reported as `already_connected`.
 **Proving it works**: `simulate_circuit` runs a private copy of Logisim's simulator (the window
 is not disturbed): one row, explicit rows, or `all_combinations` for a truth table; `watch`
 reports internal nets such as `G1.out`; `sequential` with `clock_cycles` steps clocked designs.
-`set_inputs_in_window` drives the window's own pins so the user sees the result.
+`set_inputs_in_window` drives the window's own pins so the user sees the result. Labelled push
+Buttons can be driven in both (1 = pressed, 0 = released).
+
+**Pictures for reports**: `export_image` asks Logisim to draw the circuit the way File > Export
+Image does (png, gif, jpg or svg, any zoom, optional printer view). `record_timing_diagram`
+resets the window's simulation, shows the chosen signals in Logisim's Timing diagram window,
+plays steps such as `{"set": {"RESET": 1}, "clock_cycles": 1}`, and saves the picture that
+window exports, together with the sampled values after each step.
 
 Verified end to end against the Logisim GUI: a full adder and a hierarchical 4-bit ripple
 adder (four full-adder subcircuits) were drawn only with `describe_component` and

@@ -62,6 +62,12 @@ class _FakeLive:
             raise self.simulate_error
         return {"driven": values}
 
+    def image(self, circuit, dest, *, format, scale, printer_view):
+        self.image_call = {"circuit": circuit, "format": format, "scale": scale,
+                           "printer_view": printer_view}
+        Path(dest).write_bytes(b"\x89PNG\r\n\x1a\nfake")
+        return {"circuit": circuit, "width": 10, "height": 20, "bytes": 12}
+
 
 def _fake_server(tmp_path: Path, fake: _FakeLive):
     (tmp_path / "design.circ").write_bytes(
@@ -119,20 +125,32 @@ def test_other_live_rejections_pass_through_unchanged(tmp_path: Path) -> None:
     assert "Labelled input pins" not in str(caught.value)
 
 
+def test_export_image_asks_logisim_to_draw_by_default(tmp_path: Path) -> None:
+    from tests.test_understanding import INSPECT
+
+    fake = _FakeLive(INSPECT)
+    server, _ = _fake_server(tmp_path, fake)
+    result = str(_call(server, "export_image", {"circuit_name": "main", "path": "pics/out.png"}))
+    assert '"renderer": "logisim"' in result and "created_directories" in result
+    assert fake.image_call == {"circuit": "main", "format": "png", "scale": 2.0, "printer_view": False}
+    assert (tmp_path / "pics" / "out.png").read_bytes().startswith(b"\x89PNG")
+
+
 def test_export_image_writes_svg_and_respects_overwrite(tmp_path: Path) -> None:
     import pytest
 
     from tests.test_understanding import INSPECT
 
     server, _ = _fake_server(tmp_path, _FakeLive(INSPECT))
-    result = _call(server, "export_image", {"circuit_name": "main", "path": "out.svg"})
+    bridge = {"renderer": "bridge"}
+    result = _call(server, "export_image", {"circuit_name": "main", "path": "out.svg", **bridge})
     assert "out.svg" in str(result)
     written = (tmp_path / "out.svg").read_text(encoding="utf-8")
     assert written.startswith("<svg")
     with pytest.raises(Exception) as caught:
-        _call(server, "export_image", {"circuit_name": "main", "path": "out.svg"})
+        _call(server, "export_image", {"circuit_name": "main", "path": "out.svg", **bridge})
     assert "overwrite" in str(caught.value)
-    _call(server, "export_image", {"circuit_name": "main", "path": "out.svg", "overwrite": True})
+    _call(server, "export_image", {"circuit_name": "main", "path": "out.svg", "overwrite": True, **bridge})
     with pytest.raises(Exception):
         _call(server, "export_image", {"circuit_name": "main", "path": "out.txt"})
     with pytest.raises(Exception):

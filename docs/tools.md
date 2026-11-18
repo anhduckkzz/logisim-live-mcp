@@ -104,9 +104,9 @@ Parameters: `circuit_name`, `region`?, `scale`?
 
 ### `export_image` (W)
 
-Draw a circuit as an image file for reports: format='svg' (always available, vector, wires coloured by simulated value) or 'png' (needs the optional cairosvg package). The file is written beneath the project root; scale is pixels per Logisim unit. Refuses to replace an existing file unless overwrite=true. This is the bridge's own schematic drawing, not a screenshot of the Logisim window.
+Save a picture of a circuit for reports. renderer='logisim' (the default) draws it with Logisim itself, exactly like File > Export Image: format png, gif, jpg or svg (default: from the file name); scale is the zoom (1 = 100%, Logisim's dialog goes up to 8); printer_view=true gives the black-on-white print look, false keeps the window's colours and live wire values. renderer='bridge' is the bridge's own schematic drawing (svg, or png with the optional cairosvg package). Missing folders under the project root are created. Refuses to replace a file unless overwrite=true.
 
-Parameters: `circuit_name`, `path`, `format`?, `scale`?, `include_values`?, `overwrite`?
+Parameters: `circuit_name`, `path`, `format`?, `scale`?, `renderer`?, `printer_view`?, `include_values`?, `overwrite`?
 
 ### `diagnose_circuit` (R)
 
@@ -172,9 +172,9 @@ Parameters: `circuit_name`, `component_name`, `library`, `location`, `properties
 
 ### `update_component` (W)
 
-Set or remove semantic properties on one uniquely selected component.
+Set or remove semantic properties on one uniquely selected component. set_properties (or its alias properties, as in add_component) sets values, remove_properties removes them.
 
-Parameters: `circuit_name`, `location`, `component_name`?, `library`?, `new_component_name`?, `new_library`?, `set_properties`?, `remove_properties`?
+Parameters: `circuit_name`, `location`, `component_name`?, `library`?, `new_component_name`?, `new_library`?, `set_properties`?, `remove_properties`?, `properties`?
 
 ### `move_component` (W)
 
@@ -228,13 +228,13 @@ Parameters: `circuit_name`, `operations`, `label`?
 
 ### `simulate_circuit` (R)
 
-Run the circuit in Logisim's simulator (a private copy; the window is not disturbed) and return a table. Give inputs={'A':1,'B':'0101'} for one row, rows=[{...},{...}] for several, or all_combinations=true (optionally with inputs=['A','B'] to choose the order) for a full truth table. Pins are addressed by label. watch=['G1.out', 'U2.pin6', [x,y]] also reports internal nets. sequential=true keeps state between rows and clock_cycles ticks every clock that many full cycles after applying each row.
+Run the circuit in Logisim's simulator (a private copy; the window is not disturbed) and return a table. Give inputs={'A':1,'B':'0101'} for one row, rows=[{...},{...}] for several, or all_combinations=true (optionally with inputs=['A','B'] to choose the order) for a full truth table. Pins and push Buttons are addressed by label (a Button takes 1 = pressed, 0 = released). watch=['G1.out', 'U2.pin6', [x,y]] also reports internal nets. sequential=true keeps state between rows and clock_cycles ticks every clock that many full cycles after applying each row.
 
 Parameters: `circuit_name`, `inputs`?, `rows`?, `all_combinations`?, `outputs`?, `watch`?, `sequential`?, `clock_cycles`?, `max_rows`?, `format`?
 
 ### `set_inputs_in_window` (W)
 
-Drive input pins (by label) in the window's own simulation so the user sees the values and the resulting wire colours, e.g. values={'A':1,'B':0}.
+Drive input pins and push Buttons (by label) in the window's own simulation so the user sees the values and the resulting wire colours, e.g. values={'A':1,'RESET':1} (a Button takes 1 = pressed, 0 = released).
 
 Parameters: `circuit_name`, `values`
 
@@ -257,3 +257,7 @@ Parameters: `circuit_name`?
 Pull the circuit exactly as it is in the Logisim window (hand edits, undo/redo) into the bridge. Normally automatic; use it to be explicit.
 
 Parameters: none
+
+## Other
+
+- `record_timing_diagram`: Record Logisim's own Timing diagram (Simulate > Timing diagram) of a circuit and save its picture. The Logisim window's simulation is reset (reset=true), the listed signals (labelled Pins, Buttons, Clocks, LEDs...; omit for Logisim's default selection) are shown in that order, then each step is played: {'set': {'RESET': 1}, 'clock_cycles': 1} drives inputs and Buttons (1 = pressed) and ticks the clock that many full cycles (half_ticks for single edges). The image is what the Timing diagram window's File > Export Image writes (png, gif, jpg or svg). Returns the sampled values after each step so the recording can be checked. The window stays open on the Timing diagram tab unless show=false.

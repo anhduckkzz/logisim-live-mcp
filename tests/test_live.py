@@ -48,7 +48,7 @@ class FakeAgent:
                 if parts[0] != self.token:
                     reply = "ERR\tAUTH\tinvalid token"
                 elif parts[1:2] == ["PING"]:
-                    reply = 'OK\t{"ready":true,"protocol":"2","projects":[]}'
+                    reply = 'OK\t{"ready":true,"protocol":"3","projects":[]}'
                 else:
                     reply = self.responder(parts[1:])
                 conn.sendall((reply + "\n").encode())

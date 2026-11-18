@@ -106,7 +106,7 @@ class FakeWindow:
             "external_revision": self.external,
         }
         if command == "PING":
-            return "OK\t" + json.dumps({"ready": True, "protocol": "2", "projects": []})
+            return "OK\t" + json.dumps({"ready": True, "protocol": "3", "projects": []})
         if command == "STATUS":
             return "OK\t" + json.dumps(status)
         if command == "OPEN":

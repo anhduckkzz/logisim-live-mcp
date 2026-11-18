@@ -38,7 +38,7 @@ def _pin_labels(data: dict[str, Any]) -> tuple[list[str], list[str]]:
     inputs: list[str] = []
     outputs: list[str] = []
     for comp in data.get("components", []):
-        if comp.get("name") != "Pin" or not comp.get("label"):
+        if comp.get("name") not in ("Pin", "Button") or not comp.get("label"):
             continue
         (outputs if comp.get("pin_type") == "output" else inputs).append(str(comp["label"]))
     return sorted(inputs), sorted(outputs)
@@ -57,9 +57,9 @@ def _with_pin_hint(live: LiveSession, circuit_name: str, call: Callable[[], Any]
             raise exc from None
         hint = (
             f"Labelled input pins in {circuit_name}: {', '.join(inputs) or 'none'}; "
-            f"output pins: {', '.join(outputs) or 'none'}. Only Pin components with a label can "
-            "be driven or read (Clock and LED components are not pins; add a labelled output "
-            "Pin next to them)."
+            f"output pins: {', '.join(outputs) or 'none'}. Only labelled Pin and Button "
+            "components can be driven or read (a Button reads 1 while pressed; Clock and LED "
+            "components are not pins, add a labelled output Pin next to them)."
         )
         raise LiveRejected(f"{exc}. {hint}") from None
 
@@ -138,6 +138,8 @@ def _run_batch_step(
             args.get("properties"),
         )
     if action == "update_component":
+        if "properties" in args:
+            args["set_properties"] = {**args.pop("properties"), **(args.get("set_properties") or {})}
         return project.update_component(circuit_name, args.pop("location"), **args)
     if action == "move_component":
         return project.move_component(
@@ -377,7 +379,11 @@ def create_server(
 
     @mcp.tool(
         title="Update component",
-        description="Set or remove semantic properties on one uniquely selected component.",
+        description=(
+            "Set or remove semantic properties on one uniquely selected component. "
+            "set_properties (or its alias properties, as in add_component) sets values, "
+            "remove_properties removes them."
+        ),
         annotations=WRITE,
     )
     def update_component(
@@ -389,7 +395,10 @@ def create_server(
         new_library: str | None = None,
         set_properties: dict[str, str] | None = None,
         remove_properties: list[str] | None = None,
+        properties: dict[str, str] | None = None,
     ) -> dict[str, Any]:
+        if properties:
+            set_properties = {**properties, **(set_properties or {})}
         return edit(
             f"MCP: update {component_name or 'component'}",
             lambda p: p.update_component(
@@ -691,47 +700,151 @@ def create_server(
         live = service.live_session()
         return ascii_view(live.inspect(circuit_name, values=False), region=region, scale=scale)
 
+    def _image_kind(path: str, format: str | None) -> str:
+        """The image format: as given, else taken from the file name, else png."""
+        raw = format or Path(path).suffix or "png"
+        kind = raw.lower().lstrip(".").replace("jpeg", "jpg")
+        if kind not in ("svg", "png", "gif", "jpg"):
+            raise ValueError("format must be 'png', 'svg', 'gif' or 'jpg'")
+        return kind
+
+    def _image_target(path: str, kind: str, overwrite: bool) -> tuple[Path, list[str]]:
+        target = service.policy.resolve(path, must_exist=False, suffixes=(f".{kind}",))
+        if target.exists() and not overwrite:
+            raise FileExistsError(
+                f"File already exists: {service.policy.relative(target)}; pass overwrite=true"
+            )
+        return target, service.policy.ensure_parent(target)
+
     @mcp.tool(
         title="Export circuit image",
         description=(
-            "Draw a circuit as an image file for reports: format='svg' (always available, "
-            "vector, wires coloured by simulated value) or 'png' (needs the optional cairosvg "
-            "package). The file is written beneath the project root; scale is pixels per Logisim "
-            "unit. Refuses to replace an existing file unless overwrite=true. This is the bridge's "
-            "own schematic drawing, not a screenshot of the Logisim window."
+            "Save a picture of a circuit for reports. renderer='logisim' (the default) draws it "
+            "with Logisim itself, exactly like File > Export Image: format png, gif, jpg or svg "
+            "(default: from the file name); scale is the zoom (1 = 100%, Logisim's dialog goes "
+            "up to 8); printer_view=true gives the black-on-white print look, false keeps the "
+            "window's colours and live wire values. renderer='bridge' is the bridge's own "
+            "schematic drawing (svg, or png with the optional cairosvg package). Missing folders "
+            "under the project root are created. Refuses to replace a file unless overwrite=true."
         ),
         annotations=WRITE,
     )
     def export_image(
         circuit_name: str,
         path: str,
-        format: str = "svg",
-        scale: float = 1.0,
+        format: str | None = None,
+        scale: float = 2.0,
+        renderer: str = "auto",
+        printer_view: bool = False,
         include_values: bool = True,
         overwrite: bool = False,
     ) -> dict[str, Any]:
-        kind = format.lower().lstrip(".")
-        if kind not in ("svg", "png"):
-            raise ValueError("format must be 'svg' or 'png'")
+        kind = _image_kind(path, format)
+        mode = renderer.lower()
+        if mode not in ("auto", "logisim", "bridge"):
+            raise ValueError("renderer must be 'auto', 'logisim' or 'bridge'")
         live = service.live_session()
-        target = service.policy.resolve(path, must_exist=False, suffixes=(f".{kind}",))
-        if not target.parent.is_dir():
-            raise FileNotFoundError(f"Parent directory does not exist: {target.parent}")
-        if target.exists() and not overwrite:
-            raise FileExistsError(
-                f"File already exists: {service.policy.relative(target)}; pass overwrite=true"
+        if mode == "auto":
+            mode = "logisim"
+        if mode == "bridge" and kind not in ("svg", "png"):
+            raise ValueError("the bridge renderer writes svg or png only; use renderer='logisim'")
+        target, created_dirs = _image_target(path, kind, overwrite)
+        if mode == "logisim":
+            service.require_project().get_circuit(circuit_name)
+            drawn = live.image(
+                circuit_name, target, format=kind, scale=scale, printer_view=printer_view
             )
-        data = live.inspect(circuit_name, values=include_values)
-        svg = svg_view(data, scale=scale, show_values=include_values)
-        payload = svg.encode("utf-8") if kind == "svg" else svg_to_png(svg, scale=1.0)
-        service._atomic_write(target, payload)
-        return {
+            size = target.stat().st_size if target.exists() else drawn.get("bytes", 0)
+            result = {
+                "exported": True,
+                "renderer": "logisim",
+                "circuit": circuit_name,
+                "path": service.policy.relative(target),
+                "format": kind,
+                "width": drawn.get("width"),
+                "height": drawn.get("height"),
+                "bytes": size,
+            }
+        else:
+            data = live.inspect(circuit_name, values=include_values)
+            svg = svg_view(data, scale=scale, show_values=include_values)
+            payload = svg.encode("utf-8") if kind == "svg" else svg_to_png(svg, scale=1.0)
+            service._atomic_write(target, payload)
+            result = {
+                "exported": True,
+                "renderer": "bridge",
+                "circuit": circuit_name,
+                "path": service.policy.relative(target),
+                "format": kind,
+                "bytes": len(payload),
+            }
+        if created_dirs:
+            result["created_directories"] = created_dirs
+        return result
+
+    @mcp.tool(
+        title="Record timing diagram",
+        description=(
+            "Record Logisim's own Timing diagram (Simulate > Timing diagram) of a circuit and "
+            "save its picture. The Logisim window's simulation is reset (reset=true), the listed "
+            "signals (labelled Pins, Buttons, Clocks, LEDs...; omit for Logisim's default "
+            "selection) are shown in that order, then each step is played: "
+            "{'set': {'RESET': 1}, 'clock_cycles': 1} drives inputs and Buttons (1 = pressed) "
+            "and ticks the clock that many full cycles (half_ticks for single edges). The image "
+            "is what the Timing diagram window's File > Export Image writes (png, gif, jpg or "
+            "svg). Returns the sampled values after each step so the recording can be checked. "
+            "The window stays open on the Timing diagram tab unless show=false."
+        ),
+        annotations=WRITE,
+    )
+    def record_timing_diagram(
+        circuit_name: str,
+        path: str,
+        steps: list[dict[str, Any]],
+        signals: list[str] | None = None,
+        format: str | None = None,
+        reset: bool = True,
+        show: bool = True,
+        overwrite: bool = False,
+    ) -> dict[str, Any]:
+        kind = _image_kind(path, format)
+        if not steps:
+            raise ValueError("steps must not be empty, e.g. [{'clock_cycles': 4}]")
+        allowed = {"set", "clock_cycles", "half_ticks", "label"}
+        for index, step in enumerate(steps):
+            unknown = set(step) - allowed
+            if unknown:
+                raise ValueError(
+                    f"step {index}: unknown keys {sorted(unknown)}; use set, clock_cycles, "
+                    "half_ticks, label"
+                )
+        live = service.live_session()
+        service.require_project().get_circuit(circuit_name)
+        target, created_dirs = _image_target(path, kind, overwrite)
+        spec: dict[str, Any] = {
+            "circuit": circuit_name,
+            "dest": str(target),
+            "format": kind,
+            "steps": steps,
+            "reset": reset,
+            "show": show,
+        }
+        if signals:
+            spec["signals"] = signals
+        recorded = _with_pin_hint(live, circuit_name, lambda: live.timing(spec))
+        result = {
             "exported": True,
             "circuit": circuit_name,
             "path": service.policy.relative(target),
             "format": kind,
-            "bytes": len(payload),
+            "bytes": target.stat().st_size if target.exists() else recorded.get("bytes", 0),
+            "signals": recorded.get("signals"),
+            "ticks": recorded.get("ticks"),
+            "samples": recorded.get("samples"),
         }
+        if created_dirs:
+            result["created_directories"] = created_dirs
+        return result
 
     @mcp.tool(
         title="Diagnose circuits",
@@ -752,7 +865,8 @@ def create_server(
             "Run the circuit in Logisim's simulator (a private copy; the window is not disturbed) "
             "and return a table. Give inputs={'A':1,'B':'0101'} for one row, rows=[{...},{...}] "
             "for several, or all_combinations=true (optionally with inputs=['A','B'] to choose "
-            "the order) for a full truth table. Pins are addressed by label. watch=['G1.out', "
+            "the order) for a full truth table. Pins and push Buttons are addressed by label "
+            "(a Button takes 1 = pressed, 0 = released). watch=['G1.out', "
             "'U2.pin6', [x,y]] also reports internal nets. sequential=true keeps state between rows "
             "and clock_cycles ticks every clock that many full cycles after applying each row."
         ),
@@ -799,8 +913,9 @@ def create_server(
     @mcp.tool(
         title="Set inputs in the Logisim window",
         description=(
-            "Drive input pins (by label) in the window's own simulation so the user sees the "
-            "values and the resulting wire colours, e.g. values={'A':1,'B':0}."
+            "Drive input pins and push Buttons (by label) in the window's own simulation so the "
+            "user sees the values and the resulting wire colours, e.g. values={'A':1,'RESET':1} "
+            "(a Button takes 1 = pressed, 0 = released)."
         ),
         annotations=WRITE,
     )
