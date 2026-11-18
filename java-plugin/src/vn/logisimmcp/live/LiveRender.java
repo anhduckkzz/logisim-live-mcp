@@ -139,6 +139,7 @@ final class LiveRender {
     final Simulator sim = project.getSimulator();
     if (sim == null) throw new LiveEditor.InvalidOp("the project has no simulator");
     final AtomicLong completed = new AtomicLong();
+    final AtomicLong ticked = new AtomicLong();
     final AtomicLong resets = new AtomicLong();
     final Simulator.Listener listener =
         new Simulator.Listener() {
@@ -152,6 +153,7 @@ final class LiveRender {
 
           @Override
           public void propagationCompleted(Simulator.Event e) {
+            if (e.didTick()) ticked.incrementAndGet();
             completed.incrementAndGet();
           }
         };
@@ -173,7 +175,17 @@ final class LiveRender {
     if (totalTicks > 4000) throw new LiveEditor.InvalidOp("at most 4000 clock ticks per recording");
 
     sim.addSimulatorListener(listener);
+    // Auto-ticking would add clock edges between the requested steps (and could answer the wait
+    // for a manual tick), so it is paused for the recording and restored afterwards.
+    final boolean autoTicking = sim.isAutoTicking();
     try {
+      if (autoTicking) {
+        edt(() -> {
+          sim.setAutoTicking(false);
+          return null;
+        });
+        settle(completed);
+      }
       if (reset) {
         final long r = resets.get();
         final long c = completed.get();
@@ -201,9 +213,9 @@ final class LiveRender {
         }
         final int ticks = ticksOf(step);
         for (int t = 0; t < ticks; t++) {
-          final long c = completed.get();
+          final long c = ticked.get();
           sim.tick(1);
-          waitFor(() -> completed.get() > c, "clock tick in step " + index);
+          waitFor(() -> ticked.get() > c, "clock tick in step " + index);
         }
         table.add(sample(project, shown, step.get("label") != null ? String.valueOf(step.get("label")) : "step " + index));
       }
@@ -246,9 +258,38 @@ final class LiveRender {
       m.put("ticks", totalTicks);
       m.put("bytes", dest.length());
       m.put("replaced_existing", before >= 0);
+      m.put("auto_tick_paused", autoTicking);
       return m;
     } finally {
       sim.removeSimulatorListener(listener);
+      if (autoTicking) {
+        edt(() -> {
+          sim.setAutoTicking(true);
+          return null;
+        });
+      }
+    }
+  }
+
+  /** Lets a tick that was already running when auto-ticking was switched off finish. */
+  private static void settle(AtomicLong completed) throws LiveEditor.InvalidOp {
+    final long deadline = System.currentTimeMillis() + 1000;
+    long seen = completed.get();
+    long quietSince = System.currentTimeMillis();
+    while (System.currentTimeMillis() < deadline) {
+      try {
+        Thread.sleep(5);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        throw new LiveEditor.InvalidOp("interrupted while pausing auto-tick");
+      }
+      final long now = completed.get();
+      if (now != seen) {
+        seen = now;
+        quietSince = System.currentTimeMillis();
+      } else if (System.currentTimeMillis() - quietSince >= 50) {
+        return;
+      }
     }
   }
 

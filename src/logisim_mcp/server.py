@@ -709,7 +709,8 @@ def create_server(
         return kind
 
     def _image_target(path: str, kind: str, overwrite: bool) -> tuple[Path, list[str]]:
-        target = service.policy.resolve(path, must_exist=False, suffixes=(f".{kind}",))
+        suffixes = (".jpg", ".jpeg") if kind == "jpg" else (f".{kind}",)
+        target = service.policy.resolve(path, must_exist=False, suffixes=suffixes)
         if target.exists() and not overwrite:
             raise FileExistsError(
                 f"File already exists: {service.policy.relative(target)}; pass overwrite=true"
@@ -793,6 +794,7 @@ def create_server(
             "and ticks the clock that many full cycles (half_ticks for single edges). The image "
             "is what the Timing diagram window's File > Export Image writes (png, gif, jpg or "
             "svg). Returns the sampled values after each step so the recording can be checked. "
+            "Auto-Tick, if on in the window, is paused during the recording and turned back on. "
             "The window stays open on the Timing diagram tab unless show=false."
         ),
         annotations=WRITE,
@@ -840,6 +842,7 @@ def create_server(
             "bytes": target.stat().st_size if target.exists() else recorded.get("bytes", 0),
             "signals": recorded.get("signals"),
             "ticks": recorded.get("ticks"),
+            "auto_tick_paused": recorded.get("auto_tick_paused", False),
             "samples": recorded.get("samples"),
         }
         if created_dirs:

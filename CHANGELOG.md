@@ -11,6 +11,7 @@ All notable changes to this project are documented here. The format follows
   diagram) while it plays steps on the window's simulation (drive inputs, press buttons, tick
   the clock), then saves the picture that window's File > Export Image writes (png, gif, jpg,
   svg). Signals are shown in the order asked; the sampled values after each step are returned.
+  Auto-Tick, when on in the window, is paused for the recording and switched back on.
 - `export_image` draws circuits with Logisim itself by default (`renderer="logisim"`), exactly
   like File > Export Image: png, gif, jpg or svg, any zoom, `printer_view` for the print look.
   No extra Python package is needed. The bridge's own drawing stays available as

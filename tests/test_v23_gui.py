@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from pathlib import Path
 
 import pytest
@@ -145,6 +146,76 @@ def test_buttons_images_and_timing_diagram(tmp_path: Path, monkeypatch) -> None:
 
         saved_as = _call(server, "save_project_as", path="backup/copy/counter.circ")
         assert saved_as["created_directories"] == ["backup", "backup/copy"]
+    finally:
+        if pid:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+
+
+def _press_ctrl_k(display: str) -> bool:
+    """Simulate > Auto-Tick Enabled (Ctrl+K) in the focused Logisim window."""
+    try:
+        from Xlib import X, XK, display as xdisplay
+        from Xlib.ext import xtest
+    except ImportError:
+        return False
+    d = xdisplay.Display(display)
+    xtest.fake_input(d, X.MotionNotify, x=500, y=600)
+    xtest.fake_input(d, X.ButtonPress, 1)
+    xtest.fake_input(d, X.ButtonRelease, 1)
+    d.sync()
+    time.sleep(0.3)
+    ctrl = d.keysym_to_keycode(XK.string_to_keysym("Control_L"))
+    k = d.keysym_to_keycode(XK.string_to_keysym("k"))
+    for code, kind in ((ctrl, X.KeyPress), (k, X.KeyPress), (k, X.KeyRelease), (ctrl, X.KeyRelease)):
+        xtest.fake_input(d, kind, code)
+    d.sync()
+    time.sleep(0.5)
+    return True
+
+
+def _clock_values(server, seconds: float) -> set[str]:
+    """Values the window's CLK net shows over a while (two values = the clock is running)."""
+    seen = set()
+    end = time.time() + seconds
+    while time.time() < end:
+        data = _json(_call(server, "inspect_circuit", circuit_name="main", format="json"))
+        seen |= {n.get("value") for n in data["nets"] if "CLK" in n.get("names", [])}
+        time.sleep(0.1)
+    return seen
+
+
+def test_timing_diagram_pauses_auto_tick_and_accepts_jpeg(tmp_path: Path, monkeypatch) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    root = tmp_path / "root"
+    root.mkdir()
+    monkeypatch.setenv("JAVA_TOOL_OPTIONS", f"-Duser.home={home}")
+    server = create_server(root)
+    pid = None
+    try:
+        created = _call(server, "create_project", path="counter.circ")
+        pid = created["save"]["logisim_window"]["process_id"]
+        _counter(server)
+        _call(server, "show_in_logisim", circuit_name="main")
+        if not _press_ctrl_k(os.environ["DISPLAY"]) or len(_clock_values(server, 3.0)) < 2:
+            pytest.skip("could not switch Auto-Tick on in the window (python-xlib / focus)")
+
+        steps = [{"clock_cycles": 3}, {"set": {"RESET": 1}, "half_ticks": 2}, {"clock_cycles": 2}]
+        timing = _call(server, "record_timing_diagram", circuit_name="main", path="t.jpeg",
+                       steps=steps, signals=["CLK", "RESET", "Q1", "Q0"])
+        assert timing["format"] == "jpg" and timing["auto_tick_paused"] is True
+        assert (root / "t.jpeg").read_bytes()[:2] == b"\xff\xd8"
+        got = [s["values"]["Q1"] + s["values"]["Q0"] for s in timing["samples"]]
+        # exactly the requested edges: 0 -> 2,1,3 -> reset 00 -> RESET still held: 00
+        assert got == ["00", "11", "00", "00"]
+        # auto-tick is switched back on afterwards
+        assert len(_clock_values(server, 3.0)) == 2
+
+        image = _call(server, "export_image", circuit_name="main", path="c.jpeg")
+        assert image["format"] == "jpg" and (root / "c.jpeg").read_bytes()[:2] == b"\xff\xd8"
     finally:
         if pid:
             try:

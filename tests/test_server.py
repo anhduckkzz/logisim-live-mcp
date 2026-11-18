@@ -136,6 +136,20 @@ def test_export_image_asks_logisim_to_draw_by_default(tmp_path: Path) -> None:
     assert (tmp_path / "pics" / "out.png").read_bytes().startswith(b"\x89PNG")
 
 
+def test_export_image_accepts_jpeg_extension(tmp_path: Path) -> None:
+    from tests.test_understanding import INSPECT
+
+    fake = _FakeLive(INSPECT)
+    server, _ = _fake_server(tmp_path, fake)
+    for name, fmt in (("a.jpeg", None), ("b.jpeg", "jpeg"), ("c.jpg", "jpg"), ("d.JPEG", None)):
+        args = {"circuit_name": "main", "path": name}
+        if fmt:
+            args["format"] = fmt
+        _call(server, "export_image", args)
+        assert fake.image_call["format"] == "jpg"
+        assert (tmp_path / name).is_file()
+
+
 def test_export_image_writes_svg_and_respects_overwrite(tmp_path: Path) -> None:
     import pytest
 
