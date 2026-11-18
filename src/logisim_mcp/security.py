@@ -38,5 +38,20 @@ class PathPolicy:
             raise PathNotAllowedError(f"Path must end in one of [{allowed}]: {candidate}")
         return resolved
 
+    def ensure_parent(self, resolved: Path) -> list[str]:
+        """Create the missing folders above a path that resolve() already placed in the root.
+
+        Returns the folders that were created, relative to the root, with forward slashes.
+        """
+        parent = resolved.parent
+        parent.resolve().relative_to(self.root)  # never create anything outside the root
+        missing: list[Path] = []
+        probe = parent
+        while not probe.exists():
+            missing.append(probe)
+            probe = probe.parent
+        parent.mkdir(parents=True, exist_ok=True)
+        return [Path(self.relative(p)).as_posix() for p in reversed(missing)]
+
     def relative(self, path: str | Path) -> str:
         return str(Path(path).resolve().relative_to(self.root))

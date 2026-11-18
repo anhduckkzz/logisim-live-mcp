@@ -61,7 +61,7 @@ def test_output_pin_route_removal_hints_export_and_save_as(tmp_path: Path, monke
 
         svg = _call(server, "export_image", circuit_name="main", path="inv.svg")
         assert svg["exported"] is True
-        assert (root / "inv.svg").read_text(encoding="utf-8").startswith("<svg")
+        assert "<svg" in (root / "inv.svg").read_text(encoding="utf-8")[:400]
 
         removed = _call(server, "disconnect_route", circuit_name="main", points=routed["points"])
         assert removed["not_found"] == [] and removed["removed"] == len(routed["points"]) - 1

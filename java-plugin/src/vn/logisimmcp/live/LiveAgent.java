@@ -45,7 +45,7 @@ import javax.swing.SwingUtilities;
  * {@code OK TAB <json>} or {@code ERR TAB <code> TAB <message>}.
  */
 public final class LiveAgent {
-  public static final String PROTOCOL_VERSION = "2";
+  public static final String PROTOCOL_VERSION = "3";
   private static final String UNNAMED_PREFIX = ".logisim-unnamed-autosave_";
   private static final String UNNAMED_SUFFIX = ".circ.autosave";
 
@@ -270,6 +270,8 @@ public final class LiveAgent {
       case "DESCRIBE_MANY":
       case "INSPECT":
       case "DRIVE":
+      case "IMAGE":
+      case "TIMING":
       case "SIMULATE": {
         final Map<String, Object> args = parts.length > 3 && !parts[3].isEmpty()
             ? Json.obj(Json.parse(parts[3])) : new LinkedHashMap<>();
@@ -285,6 +287,10 @@ public final class LiveAgent {
               case "INSPECT" -> LiveInspector.inspect(p, Json.str(args.get("circuit")),
                   !Boolean.FALSE.equals(args.get("values")), Boolean.TRUE.equals(args.get("attributes")));
               case "DRIVE" -> LiveInspector.drive(p, Json.str(args.get("circuit")), Json.obj(args.get("values")));
+              case "IMAGE" -> LiveRender.image(p, Json.str(args.get("circuit")), new File(Json.str(args.get("dest"))),
+                  Json.str(args.get("format")), args.get("scale") instanceof Number n ? n.doubleValue() : 1.0,
+                  Boolean.TRUE.equals(args.get("printer_view")));
+              case "TIMING" -> LiveRender.timing(p, args);
               default -> LiveInspector.simulate(p, Json.str(args.get("circuit")), args);
             };
             return ok(Json.write(out));
@@ -293,8 +299,9 @@ public final class LiveAgent {
           }
         };
         // Simulation runs in a private circuit state on this worker thread so the window stays
-        // responsive; everything else reads the model on the Swing thread.
-        return command.equals("SIMULATE") ? body.call() : onEdt(body);
+        // responsive; a timing recording waits for the window's simulator thread and does its
+        // Swing work itself. Everything else reads the model on the Swing thread.
+        return command.equals("SIMULATE") || command.equals("TIMING") ? body.call() : onEdt(body);
       }
       case "SHOW": {
         final String circuit = parts.length > 3 ? parts[3] : null;

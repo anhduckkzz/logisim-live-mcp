@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "logisim-live-mcp"
-version = "2.2.0"
+version = "2.3.0"
 description = "Live MCP server for Logisim Evolution: AI agents draw, wire, inspect and simulate digital circuits directly in the running Logisim window."
 readme = "README.md"
 requires-python = ">=3.11"

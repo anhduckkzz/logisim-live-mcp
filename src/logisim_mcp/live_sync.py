@@ -214,6 +214,12 @@ class LiveSession:
                 raise LiveStale(int(exc.message or 0)) from exc
             if exc.code == "INVALID":
                 raise LiveRejected(exc.message) from exc
+            if exc.code == "BAD_REQUEST" and exc.message.startswith("unknown command"):
+                raise LogisimMcpError(
+                    "The open Logisim window runs an older version of the live plugin that does "
+                    f"not know {command}. Save your work in Logisim, close Logisim once, and call "
+                    "open_project again; the bridge relaunches it with the current plugin."
+                ) from exc
             raise
 
     def status(self) -> dict[str, Any] | None:
@@ -293,3 +299,24 @@ class LiveSession:
 
     def drive(self, circuit: str, values: dict[str, Any]) -> dict[str, Any]:
         return self._json("DRIVE", {"circuit": circuit, "values": values})
+
+    # ------------------------------------------------------------------ pictures (v2.3)
+
+    def image(
+        self, circuit: str, dest: Path, *, format: str, scale: float, printer_view: bool
+    ) -> dict[str, Any]:
+        """Draw a circuit with Logisim's own renderer (what File > Export Image writes)."""
+        return self._json(
+            "IMAGE",
+            {
+                "circuit": circuit,
+                "dest": str(dest),
+                "format": format,
+                "scale": scale,
+                "printer_view": printer_view,
+            },
+        )
+
+    def timing(self, spec: dict[str, Any], timeout: float = 180.0) -> dict[str, Any]:
+        """Record the window's Timing diagram while driving its simulation, then export it."""
+        return self._json("TIMING", spec, timeout=timeout)

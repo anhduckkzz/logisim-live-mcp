@@ -13,7 +13,7 @@ from .errors import LogisimMcpError
 from .live import LiveAppClient, LiveAppError, LiveAppUnavailable, default_plugin_jar
 from .security import PathPolicy
 
-LIVE_PROTOCOL = "2"
+LIVE_PROTOCOL = "3"
 
 
 class LogisimRunner:

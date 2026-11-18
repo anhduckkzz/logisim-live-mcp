@@ -56,6 +56,21 @@ def _properties(component: etree._Element) -> dict[str, str]:
     return result
 
 
+_TRUE_WORDS = {"true", "1", "yes", "on"}
+
+
+def _pin_type_alias(props: dict[str, Any]) -> dict[str, Any]:
+    """Accept the common spellings output=true / input=true for a Pin's real 'type' property."""
+    out = dict(props)
+    for key, kind, other in (("output", "output", "input"), ("input", "input", "output")):
+        if key in out and "type" not in props:
+            flag = str(out.pop(key)).strip().lower() in _TRUE_WORDS
+            out["type"] = kind if flag else other
+        elif key in out:
+            out.pop(key)
+    return out
+
+
 class LogisimProject:
     """In-memory semantic view of one Logisim Evolution .circ XML file."""
 
@@ -373,6 +388,8 @@ class LogisimProject:
             "comp", lib=str(library), loc=loc, name=str(component_name)
         )
         props = dict(properties or {})
+        if component_name == "Pin":
+            props = _pin_type_alias(props)
         if self._is_wiring_library(library) and component_name == "Pin":
             # Logisim omits `facing` for east, but its own toolbar places output pins facing
             # west (the wire attaches on the west side). Omitting it makes a freshly added

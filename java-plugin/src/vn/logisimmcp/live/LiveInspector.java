@@ -19,10 +19,12 @@ import com.cburch.logisim.data.Value;
 import com.cburch.logisim.file.LogisimFile;
 import com.cburch.logisim.instance.Instance;
 import com.cburch.logisim.instance.InstanceComponent;
+import com.cburch.logisim.instance.InstanceDataSingleton;
 import com.cburch.logisim.instance.InstanceState;
 import com.cburch.logisim.instance.Port;
 import com.cburch.logisim.instance.StdAttr;
 import com.cburch.logisim.proj.Project;
+import com.cburch.logisim.std.io.Button;
 import com.cburch.logisim.std.wiring.Clock;
 import com.cburch.logisim.std.wiring.Pin;
 import com.cburch.logisim.std.wiring.Tunnel;
@@ -825,18 +827,54 @@ final class LiveInspector {
 
   // ------------------------------------------------------------------ simulation
 
-  private record PinInfo(Component comp, Instance inst, String label, int width, boolean input) {}
+  /** A labelled input or output the simulation can drive or read: a Pin or a push Button. */
+  private record PinInfo(Component comp, Instance inst, String label, int width, boolean input, boolean button) {}
 
   private static List<PinInfo> pins(Circuit circuit) {
     final List<PinInfo> list = new ArrayList<>();
     for (final Component c : circuit.getNonWires()) {
-      if (!(c.getFactory() instanceof Pin)) continue;
       final Instance inst = Instance.getInstanceFor(c);
       final String l = label(c);
-      list.add(new PinInfo(c, inst, l, Pin.FACTORY.getWidth(inst).getWidth(), Pin.FACTORY.isInputPin(inst)));
+      if (c.getFactory() instanceof Pin) {
+        list.add(new PinInfo(c, inst, l, Pin.FACTORY.getWidth(inst).getWidth(), Pin.FACTORY.isInputPin(inst), false));
+      } else if (c.getFactory() instanceof Button) {
+        list.add(new PinInfo(c, inst, l, 1, true, true));
+      }
     }
     list.sort(Comparator.comparingInt((PinInfo p) -> p.comp.getLocation().getY()).thenComparingInt(p -> p.comp.getLocation().getX()));
     return list;
+  }
+
+  /**
+   * Drives one input. For a Button the value means pressed (1) or released (0), whatever its
+   * "Logic level" setting; the button then outputs what Logisim's own poker would make it output.
+   */
+  private static void setInput(CircuitState state, PinInfo p, Value v, boolean repaint) {
+    final InstanceState is = state.getInstanceState(p.comp);
+    if (p.button) {
+      final boolean passive = is.getAttributeValue(Button.ATTR_PRESS) == Button.BUTTON_PRESS_PASSIVE;
+      final boolean pressed = v.equals(Value.TRUE);
+      final Value out = pressed != passive ? Value.TRUE : Value.FALSE;
+      if (is.getData() instanceof InstanceDataSingleton data) {
+        data.setValue(out);
+      } else {
+        is.setData(new InstanceDataSingleton(out));
+      }
+      if (repaint) p.inst.fireInvalidated();
+    } else {
+      Pin.FACTORY.driveInputPin(is, v);
+    }
+    state.markComponentAsDirty(p.comp);
+  }
+
+  /** The value a pin shows, or for a Button 1 while it is pressed. */
+  private static Value readValue(CircuitState state, PinInfo p) {
+    final InstanceState is = state.getInstanceState(p.comp);
+    if (!p.button) return Pin.FACTORY.getValue(is);
+    final boolean passive = is.getAttributeValue(Button.ATTR_PRESS) == Button.BUTTON_PRESS_PASSIVE;
+    final Value out = is.getData() instanceof InstanceDataSingleton data && data.getValue() instanceof Value v
+        ? v : (passive ? Value.TRUE : Value.FALSE);
+    return (out.equals(Value.TRUE) != passive) ? Value.TRUE : Value.FALSE;
   }
 
   static Value parseValue(Object raw, int width) throws LiveEditor.InvalidOp {
@@ -956,9 +994,7 @@ final class LiveInspector {
         final PinInfo p = inputs.get(e.getKey());
         if (p == null) throw new LiveEditor.InvalidOp("No input pin labelled '" + e.getKey() + "' in " + circuitName);
         final Value v = parseValue(e.getValue(), p.width);
-        final InstanceState is = state.getInstanceState(p.comp);
-        Pin.FACTORY.driveInputPin(is, v);
-        state.markComponentAsDirty(p.comp);
+        setInput(state, p, v, false);
         in.put(e.getKey(), formatValue(v));
       }
       prop.propagate();
@@ -971,7 +1007,7 @@ final class LiveInspector {
       final Map<String, Object> out = new LinkedHashMap<>();
       for (final String name : outNames) {
         final PinInfo p = outputs.containsKey(name) ? outputs.get(name) : inputs.get(name);
-        out.put(name, formatValue(Pin.FACTORY.getValue(state.getInstanceState(p.comp))));
+        out.put(name, formatValue(readValue(state, p)));
       }
       final Map<String, Object> r = new LinkedHashMap<>();
       r.put("in", in);
@@ -994,29 +1030,37 @@ final class LiveInspector {
     result.put("rows", table);
     if (anyOscillation) result.put("oscillation", true);
     if (!warnings.isEmpty()) result.put("warnings", warnings);
-    result.put("note", "values: 0/1 per bit, x = floating (blue), E = conflict (red)");
+    result.put("note", "values: 0/1 per bit, x = floating (blue), E = conflict (red); a Button reads 1 while pressed");
     return result;
   }
 
-  /** Drives input pins in the window's own simulation so the user sees the values. */
+  /** Drives input pins and buttons in the window's own simulation so the user sees the values. */
   static Map<String, Object> drive(Project project, String circuitName, Map<String, Object> values) throws LiveEditor.InvalidOp {
     final Circuit circuit = LiveEditor.circuit(project.getLogisimFile(), circuitName);
     if (project.getCurrentCircuit() != circuit) project.setCurrentCircuit(circuit);
+    final Map<String, Object> set = driveWindow(project, circuit, values);
+    project.getSimulator().nudge();
+    final Map<String, Object> m = new LinkedHashMap<>();
+    m.put("set", set);
+    return m;
+  }
+
+  /** Sets inputs in the window's current circuit state; the caller nudges the simulator. */
+  static Map<String, Object> driveWindow(Project project, Circuit circuit, Map<String, Object> values)
+      throws LiveEditor.InvalidOp {
     final CircuitState state = project.getCircuitState();
     final Map<String, PinInfo> inputs = new HashMap<>();
     for (final PinInfo p : pins(circuit)) if (p.input && p.label != null) inputs.put(p.label, p);
     final Map<String, Object> set = new LinkedHashMap<>();
     for (final Map.Entry<String, Object> e : values.entrySet()) {
       final PinInfo p = inputs.get(e.getKey());
-      if (p == null) throw new LiveEditor.InvalidOp("No input pin labelled '" + e.getKey() + "' in " + circuitName);
+      if (p == null) {
+        throw new LiveEditor.InvalidOp("No input pin labelled '" + e.getKey() + "' in " + circuit.getName());
+      }
       final Value v = parseValue(e.getValue(), p.width);
-      Pin.FACTORY.driveInputPin(state.getInstanceState(p.comp), v);
-      state.markComponentAsDirty(p.comp);
+      setInput(state, p, v, true);
       set.put(e.getKey(), formatValue(v));
     }
-    project.getSimulator().nudge();
-    final Map<String, Object> m = new LinkedHashMap<>();
-    m.put("set", set);
-    return m;
+    return set;
   }
 }

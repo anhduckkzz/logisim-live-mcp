@@ -63,7 +63,12 @@ A  B  Cin  |  S  Cout
   it taps existing wires of the same net like a person would.
 - **Proof by simulation.** `simulate_circuit` returns truth tables, explicit rows or clocked
   sequences from Logisim's own simulator in a private state, plus internal nets you watch.
-  Headless `--test-vector` runs are supported too.
+  Labelled push Buttons are inputs too (1 = pressed). Headless `--test-vector` runs are
+  supported too.
+- **Pictures made by Logisim.** `export_image` draws a circuit exactly like File > Export
+  Image, and `record_timing_diagram` plays clock ticks and button presses in the window while
+  Logisim's own Timing diagram records them, then saves that window's picture. Both are ready
+  for lab reports, with no screen capture.
 - **Works with you, not around you.** Your own edits in the window (and Ctrl+Z) are pulled
   back before the agent's next step. Saves are validated, backed up and atomic, and the
   window is marked as saved without reloading.
@@ -123,9 +128,9 @@ Details: [docs/clients.md](docs/clients.md) and [docs/install-windows.md](docs/i
 | Group | Tools |
 |---|---|
 | Project | `create_project`, `open_project`, `save_project`, `save_project_as`, `save_and_open_in_logisim`, backups and rollback, status |
-| Understanding | `list_component_types`, `describe_component`, `inspect_circuit`, `view_circuit`, `export_image` (SVG/PNG), `diagnose_circuit`, `read_circuit`, `analyze_layout`, validation |
+| Understanding | `list_component_types`, `describe_component`, `inspect_circuit`, `view_circuit`, `export_image` (drawn by Logisim: PNG/GIF/JPG/SVG), `diagnose_circuit`, `read_circuit`, `analyze_layout`, validation |
 | Editing (live) | `add_component`, `update_component`, `move_component`, `delete_component`, `connect_ports`, `connect_wire_smart`, `connect_wire`, `disconnect_wire`, `disconnect_route`, `apply_edits` (batch, one undo step), circuit add/rename/delete/main |
-| Simulation | `simulate_circuit`, `set_inputs_in_window`, `run_test_vector` |
+| Simulation | `simulate_circuit`, `set_inputs_in_window`, `record_timing_diagram`, `run_test_vector` |
 | Window | `show_in_logisim`, `sync_from_logisim` |
 
 ## How it works

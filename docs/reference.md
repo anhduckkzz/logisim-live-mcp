@@ -111,6 +111,9 @@ number, or to `0` to keep everything. Backups created with `create_backup` are n
 - Logisim windows started by hand (without the plugin) cannot be edited live; close them
   once and let the bridge relaunch Logisim. Edits made while the window is closed are
   saved normally and shown the next time the project is opened.
+- Release 2.3.0 adds `record_timing_diagram`, Logisim-drawn `export_image`, push Buttons in
+  simulation and automatic folder creation. The new plugin commands are tested against the
+  real Logisim 5.0.0 GUI (`tests/test_v23_gui.py`, a 0-2-1-3 counter with a reset button).
 - Release 2.2.0 adds `disconnect_route`, `save_project_as`, `export_image` and the changes listed
   in the changelog. Its Python side is unit-tested; the Java plugin is unchanged from 2.1.0.
 - Release 2.1.0 adds the understanding tools above, tested the same way.
